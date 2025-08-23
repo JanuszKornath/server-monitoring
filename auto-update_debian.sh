@@ -40,4 +40,5 @@ else
 fi
 
 # === Mail verschicken ===
-echo -e "$MAIL_BODY" | mail -s "$MAIL_SUBJECT" root
+echo -e "Content-Type: text/plain; charset=UTF-8\nContent-Transfer-Encoding: 8bit\n\n$MAIL_BODY" \
+    | mail -a "Content-Type: text/plain; charset=UTF-8" -s "$MAIL_SUBJECT" root
