@@ -9,7 +9,7 @@ UPGRADABLE=$(apt list --upgradable 2>/dev/null | grep -v Listing | wc -l)
 PACKAGE_LIST=$(apt list --upgradable 2>/dev/null | grep -v Listing)
 
 # === Snap-Updates prüfen ===
-SNAP_LIST=$(snap refresh --list 2>/dev/null)
+SNAP_LIST=$(snap refresh --list 2>/dev/null | tail -n +2)
 SNAP_UPGRADABLE=$(echo "$SNAP_LIST" | wc -l)
 
 if [ "$UPGRADABLE" -eq 0 ] && [ "$SNAP_UPGRADABLE" -eq 0 ]; then
@@ -21,8 +21,8 @@ else
     KERNEL_UPGRADES=$(echo "$PACKAGE_LIST" | grep -E 'linux-image|linux-headers' | wc -l)
 
     # === Update & Upgrade ===
-    apt -y dist-upgrade -qq > /tmp/apt-upgrade.log 2>&1
-    apt -y autoremove -qq > /tmp/apt-autoremove.log 2>&1
+    apt -y dist-upgrade > /tmp/apt-upgrade.log 2>&1
+    apt -y autoremove > /tmp/apt-autoremove.log 2>&1
 
     # Paketnamen aus den Logs extrahieren
     UPGRADE_PKGS=$(grep -E "^Setting up|^Preparing to unpack|^Unpacking|^Installing" /tmp/apt-upgrade.log \
@@ -31,7 +31,7 @@ else
 
     # === Snap-Pakete aktualisieren ===
     if [ "$SNAP_UPGRADABLE" -gt 0 ]; then
-        SNAP_UPGRADE_LOG=$(snap refresh --quiet --list 2>/dev/null)
+        SNAP_UPGRADE_LOG=$(snap refresh 2>&1)
     else
         SNAP_UPGRADE_LOG="Keine Snap-Updates installiert."
     fi
@@ -49,5 +49,7 @@ else
 fi
 
 # === Mail verschicken ===
-echo -e "Content-Type: text/plain; charset=UTF-8\nContent-Transfer-Encoding: 8bit\n\n$MAIL_BODY" \
-    | mail -a "Content-Type: text/plain; charset=UTF-8" -s "$MAIL_SUBJECT" root
+echo -e "$MAIL_BODY" \
+    | mail -a "Content-Type: text/plain; charset=UTF-8" \
+           -a "Content-Transfer-Encoding: 8bit" \
+           -s "$MAIL_SUBJECT" root
