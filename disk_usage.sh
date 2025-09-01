@@ -22,7 +22,7 @@ export LC_ALL=C.UTF-8
 export LANG=C.UTF-8
 
 # Hostname des Servers
-HOSTNAME=$(hostname)
+HOSTNAME=$(hostname -f)
 
 # Optional: Whitelist & Blacklist
 WHITELIST=("/" "/boot" "/var")       # wird immer überwacht, wenn vorhanden
@@ -81,7 +81,16 @@ for DISK in "${DISKS[@]}"; do
 
         # Retry-Mechanismus für das Senden der E-Mail
         for ((i=1; i<=MAX_RETRIES; i++)); do
-            echo -e "Subject:${SUBJECT}\nContent-Type: text/plain; charset=UTF-8\n\n${BODY}" | sendmail -v "$EMAIL"
+            # Mail an root senden, Postfix leitet über /etc/aliases weiter
+            (
+            echo "To: $EMAIL"
+            echo "From: root@$HOSTNAME"
+            echo "Subject: $SUBJECT"
+            echo "Content-Type: text/plain; charset=UTF-8"
+            echo
+            echo -e "$BODY"
+            ) | sendmail -t
+
             if [ $? -eq 0 ]; then
                 echo "$(date): E-Mail erfolgreich gesendet. Partition $DISK ($MOUNT_POINT) ist zu ${USAGE}% belegt." >> "$LOGFILE"
                 break
