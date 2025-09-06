@@ -26,6 +26,17 @@ for DISK in $DISKS; do
 
     smartctl -A "$DEVICE" > "$NEW_FILE"
 
+    # Neue Informationen hinzufügen: Hersteller, Modell, Betriebsstunden
+    MANUFACTURER=$(smartctl -i "$DEVICE" | awk -F': +' '/Model Family/ {print $2}')
+    MODEL=$(smartctl -i "$DEVICE" | awk -F': +' '/Device Model/ {print $2}')
+    POWER_ON_HOURS=$(awk '/Power_On_Hours/ {print $10}' "$NEW_FILE")
+    
+    # Sicherstellen, dass die Variablen nicht leer sind
+    MANUFACTURER=${MANUFACTURER:-"Unbekannt"}
+    MODEL=${MODEL:-"Unbekannt"}
+    POWER_ON_HOURS=${POWER_ON_HOURS:-0}
+
+    # SMART-Werte auslesen
     REALLOC=$(awk '/Reallocated_Sector_Ct/ {print $10}' "$NEW_FILE")
     PENDING=$(awk '/Current_Pending_Sector/ {print $10}' "$NEW_FILE")
     OFFLINE=$(awk '/Offline_Uncorrectable/ {print $10}' "$NEW_FILE")
@@ -37,14 +48,20 @@ for DISK in $DISKS; do
     CRC=${CRC:-0}
 
     echo -e "\nDisk: $DEVICE" | tee -a "$LOG_FILE" >> "$MAIL_BODY"
-    echo -e "Reallocated_Sector_Ct: $REALLOC" >> "$MAIL_BODY"
-    echo "  Erklärung: Anzahl der Sektoren, die verschoben wurden, da defekt. Frühzeitige Warnung vor Ausfall." >> "$MAIL_BODY"
-    echo -e "Current_Pending_Sector: $PENDING" >> "$MAIL_BODY"
-    echo "  Erklärung: Sektoren, die fehlerhaft, aber noch nicht neu zugeordnet sind. Kritisch." >> "$MAIL_BODY"
-    echo -e "Offline_Uncorrectable: $OFFLINE" >> "$MAIL_BODY"
-    echo "  Erklärung: Sektoren, die weder online noch offline repariert werden konnten. Kritisch." >> "$MAIL_BODY"
-    echo -e "UDMA_CRC_Error_Count: $CRC" >> "$MAIL_BODY"
-    echo "  Erklärung: Schnittstellen-/Kabel-/Controller-Fehler. Nicht direkt Platte." >> "$MAIL_BODY"
+    # Ausgabe der neuen Informationen
+    echo -e "  Hersteller: $MANUFACTURER" >> "$MAIL_BODY"
+    echo -e "  Modell: $MODEL" >> "$MAIL_BODY"
+    echo -e "  Laufzeit (Stunden): $POWER_ON_HOURS" >> "$MAIL_BODY"
+
+    echo -e "\n  SMART-Werte:" >> "$MAIL_BODY"
+    echo -e "  Reallocated_Sector_Ct: $REALLOC" >> "$MAIL_BODY"
+    echo "    Erklärung: Anzahl der Sektoren, die verschoben wurden, da defekt. Frühzeitige Warnung vor Ausfall." >> "$MAIL_BODY"
+    echo -e "  Current_Pending_Sector: $PENDING" >> "$MAIL_BODY"
+    echo "    Erklärung: Sektoren, die fehlerhaft, aber noch nicht neu zugeordnet sind. Kritisch." >> "$MAIL_BODY"
+    echo -e "  Offline_Uncorrectable: $OFFLINE" >> "$MAIL_BODY"
+    echo "    Erklärung: Sektoren, die weder online noch offline repariert werden konnten. Kritisch." >> "$MAIL_BODY"
+    echo -e "  UDMA_CRC_Error_Count: $CRC" >> "$MAIL_BODY"
+    echo "    Erklärung: Schnittstellen-/Kabel-/Controller-Fehler. Nicht direkt Platte." >> "$MAIL_BODY"
 
     echo -e "\nInterpretation:" >> "$MAIL_BODY"
 
@@ -67,7 +84,7 @@ for DISK in $DISKS; do
     if [ "$IS_CRITICAL" -eq 1 ]; then
         CRITICAL_FOUND=1
         echo -e "!!! WARNUNG: Festplatte $DEVICE zeigt kritische Werte!!!" >> "$MAIL_BODY"
-        echo -e "Disk: $DEVICE\nReallocated_Sector_Ct: $REALLOC\nCurrent_Pending_Sector: $PENDING\nOffline_Uncorrectable: $OFFLINE\nUDMA_CRC_Error_Count: $CRC\n!!! Sofort prüfen!!!\n" >> "$WARN_BODY"
+        echo -e "Disk: $DEVICE\nHersteller: $MANUFACTURER\nModell: $MODEL\nLaufzeit (Stunden): $POWER_ON_HOURS\nReallocated_Sector_Ct: $REALLOC\nCurrent_Pending_Sector: $PENDING\nOffline_Uncorrectable: $OFFLINE\nUDMA_CRC_Error_Count: $CRC\n!!! Sofort prüfen!!!\n" >> "$WARN_BODY"
     else
         echo "Status: Alles in Ordnung." >> "$MAIL_BODY"
     fi
