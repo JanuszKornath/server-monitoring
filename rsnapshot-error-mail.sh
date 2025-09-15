@@ -1,32 +1,30 @@
 #!/bin/bash
 
-# Konfigurationsdatei und Log-Datei definieren
-CONFIG_FILE="/etc/rsnapshot.conf"
+# Konfigurationsdateien und Logs
 LOG_FILE="/var/log/rsnapshot.log"
 ERROR_LOG="/var/log/rsnapshot_error.log"
+HOSTNAME=$(hostname)
+TIMESTAMP=$(date +"%Y-%m-%d %H:%M:%S")
 
-# Backup starten und Standard- sowie Fehlerausgabe in Log-Dateien schreiben
-/usr/bin/rsnapshot -c "$CONFIG_FILE" "$1" > "$LOG_FILE" 2> "$ERROR_LOG"
-EXIT_CODE=$?
+# Backup-Level automatisch aus dem Log ziehen
+LEVEL=$(tac "$LOG_FILE" | grep -m1 "started" | awk '{print $4}' | tr '[:lower:]' '[:upper:]')
 
-# Wenn rsnapshot einen Fehler hat, sende eine E-Mail mit Details
-if [ $EXIT_CODE -ne 0 ]; then
-    HOSTNAME=$(hostname)
-    TIMESTAMP=$(date +"%Y-%m-%d %H:%M:%S")
+# Falls nichts gefunden, Standardwert setzen
+if [ -z "$LEVEL" ]; then
+    LEVEL="UNKNOWN"
+fi
 
-    # E-Mail-Text vorbereiten
+# Wenn Fehler im Error-Log stehen → Mail verschicken
+if [ -s "$ERROR_LOG" ]; then
     EMAIL_BODY="Fehler bei rsnapshot Backup auf $HOSTNAME am $TIMESTAMP.
 
-Exit-Code: $EXIT_CODE
+Backup-Level: $LEVEL
 
 Fehlermeldungen:
 $(cat "$ERROR_LOG")
 
 Letzte 20 Zeilen aus dem Log:
-$(tail -n 20 "$LOG_FILE")
+$(tail -n 20 "$LOG_FILE")"
 
-Überprüfe die rsnapshot-Konfiguration in: $CONFIG_FILE"
-
-    # E-Mail versenden
-    echo "$EMAIL_BODY" | mail -s "rsnapshot Backup-Fehler auf $HOSTNAME" name@host.tld
+    echo "$EMAIL_BODY" | mail -s "rsnapshot Backup-Fehler ($LEVEL) auf $HOSTNAME" mail@tld.de
 fi
