@@ -1,32 +1,37 @@
 #!/bin/bash
 
-# Konfigurationsdatei und Log-Datei definieren
-CONFIG_FILE="/etc/rsnapshot.conf"
 LOG_FILE="/var/log/rsnapshot.log"
-ERROR_LOG="/var/log/rsnapshot_error.log"
+STATEFILE="/var/tmp/rsnapshot_check.state"
+HOSTNAME=$(hostname)
+TIMESTAMP=$(date +"%Y-%m-%d %H:%M:%S")
 
-# Backup starten und Standard- sowie Fehlerausgabe in Log-Dateien schreiben
-/usr/bin/rsnapshot -c "$CONFIG_FILE" "$1" > "$LOG_FILE" 2> "$ERROR_LOG"
-EXIT_CODE=$?
+# Letzten Check-Zeitpunkt laden
+LASTRUN=$(cat "$STATEFILE" 2>/dev/null || echo 0)
+NOW=$(date +%s)
 
-# Wenn rsnapshot einen Fehler hat, sende eine E-Mail mit Details
-if [ $EXIT_CODE -ne 0 ]; then
-    HOSTNAME=$(hostname)
-    TIMESTAMP=$(date +"%Y-%m-%d %H:%M:%S")
+# Neue Fehler seit letztem Lauf extrahieren
+NEW_ERRORS=$(awk -v last="$LASTRUN" -F'[][]' '
+    /ERROR/ {
+        # Zeitstempel im Log steht zwischen [ ]
+        cmd="date -d \"" $2 "\" +%s"
+        cmd | getline t
+        close(cmd)
+        if (t > last) print
+    }
+' "$LOG_FILE")
 
-    # E-Mail-Text vorbereiten
+# Wenn neue Fehler gefunden → Mail verschicken
+if [ -n "$NEW_ERRORS" ]; then
     EMAIL_BODY="Fehler bei rsnapshot Backup auf $HOSTNAME am $TIMESTAMP.
 
-Exit-Code: $EXIT_CODE
-
-Fehlermeldungen:
-$(cat "$ERROR_LOG")
+Neue Fehlermeldungen seit letztem Lauf:
+$NEW_ERRORS
 
 Letzte 20 Zeilen aus dem Log:
-$(tail -n 20 "$LOG_FILE")
+$(tail -n 20 "$LOG_FILE")"
 
-Überprüfe die rsnapshot-Konfiguration in: $CONFIG_FILE"
-
-    # E-Mail versenden
     echo "$EMAIL_BODY" | mail -s "rsnapshot Backup-Fehler auf $HOSTNAME" name@host.tld
 fi
+
+# Zeitpunkt merken
+echo "$NOW" > "$STATEFILE"
