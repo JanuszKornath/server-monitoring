@@ -1,6 +1,5 @@
 #!/bin/bash
 
-<<<<<<< HEAD
 LOG_FILE="/var/log/rsnapshot.log"
 STATEFILE="/var/tmp/rsnapshot_check.state"
 HOSTNAME=$(hostname)
