@@ -1,9 +1,6 @@
 #!/bin/bash
 
-# === Hostname für den Betreff ===
 HOSTNAME=$(hostname)
-
-# Verzeichnisse
 DATA_DIR="/var/lib/smart-summary"
 LOG_FILE="/var/log/smart-check.log"
 mkdir -p "$DATA_DIR"
@@ -11,16 +8,15 @@ mkdir -p "$DATA_DIR"
 MAIL_BODY=$(mktemp)
 WARN_BODY=$(mktemp)
 
-# Nur physische Festplatten (ohne Partitions- oder Pseudo-Geräte)
 DISKS=$(lsblk -dno NAME,TYPE | awk '$2=="disk"{print $1}')
 
-# HTML-Header
-{
-echo "<html><body style='font-family: Arial, sans-serif;'>"
-echo "<h2>SMART Summary für $HOSTNAME – $(date)</h2>"
-} > "$MAIL_BODY"
-
 CRITICAL_FOUND=0
+
+# Header für HTML-Mail
+echo "<html><body style='font-family: Arial, sans-serif;'>" > "$MAIL_BODY"
+echo "<h2 style='color:blue;'>SMART Summary für $HOSTNAME – $(date)</h2>" >> "$MAIL_BODY"
+
+echo "<html><body style='font-family: Arial, sans-serif;'>" > "$WARN_BODY"
 
 for DISK in $DISKS; do
     DEVICE="/dev/$DISK"
@@ -49,9 +45,7 @@ for DISK in $DISKS; do
     CRC=${CRC:-0}
 
     echo "<h3>Disk: $DEVICE</h3>" >> "$MAIL_BODY"
-    echo "<p><b>Hersteller:</b> $MANUFACTURER<br>" >> "$MAIL_BODY"
-    echo "<b>Modell:</b> $MODEL<br>" >> "$MAIL_BODY"
-    echo "<b>Laufzeit (Stunden):</b> $POWER_ON_HOURS</p>" >> "$MAIL_BODY"
+    echo "<p><b>Hersteller:</b> $MANUFACTURER<br><b>Modell:</b> $MODEL<br><b>Laufzeit (Stunden):</b> $POWER_ON_HOURS</p>" >> "$MAIL_BODY"
 
     echo "<table border='1' cellspacing='0' cellpadding='4' style='border-collapse:collapse;'>" >> "$MAIL_BODY"
     echo "<tr><th>Attribut</th><th>Wert</th><th>Bewertung</th></tr>" >> "$MAIL_BODY"
@@ -72,37 +66,25 @@ for DISK in $DISKS; do
         fi
 
         echo "<tr><td>$NAME</td><td>$VALUE</td><td style='color:$COLOR;font-weight:bold;'>$MSG</td></tr>" >> "$MAIL_BODY"
+
+        if [ "$IS_CRITICAL" -eq 1 ]; then
+            # Auch für Warn-Mail
+            echo "<h3 style='color:red;'>Kritische SMART-Warnung: $DEVICE</h3>" >> "$WARN_BODY"
+            echo "<p><b>Hersteller:</b> $MANUFACTURER<br><b>Modell:</b> $MODEL<br><b>Laufzeit (Stunden):</b> $POWER_ON_HOURS</p>" >> "$WARN_BODY"
+            echo "<table border='1' cellspacing='0' cellpadding='4' style='border-collapse:collapse;'>" >> "$WARN_BODY"
+            echo "<tr><th>Attribut</th><th>Wert</th></tr>" >> "$WARN_BODY"
+            echo "<tr><td>Reallocated_Sector_Ct</td><td>$REALLOC</td></tr>" >> "$WARN_BODY"
+            echo "<tr><td>Current_Pending_Sector</td><td>$PENDING</td></tr>" >> "$WARN_BODY"
+            echo "<tr><td>Offline_Uncorrectable</td><td>$OFFLINE</td></tr>" >> "$WARN_BODY"
+            echo "<tr><td>UDMA_CRC_Error_Count</td><td>$CRC</td></tr>" >> "$WARN_BODY"
+            echo "</table>" >> "$WARN_BODY"
+            echo "<p style='color:red;font-weight:bold;'>!!! Sofort prüfen !!!</p><hr>" >> "$WARN_BODY"
+        fi
     done
 
     echo "</table>" >> "$MAIL_BODY"
 
-    if [ "$IS_CRITICAL" -eq 1 ]; then
-        CRITICAL_FOUND=1
-        echo "<p style='color:red;font-weight:bold;'>!!! WARNUNG: Festplatte $DEVICE zeigt kritische Werte !!!</p>" >> "$MAIL_BODY"
-
-        # Gleiche Infos auch in Warn-Mail (HTML)
-        {
-        echo "<h3 style='color:red;'>Kritische SMART-Warnung: $DEVICE</h3>"
-        echo "<p><b>Hersteller:</b> $MANUFACTURER<br>"
-        echo "<b>Modell:</b> $MODEL<br>"
-        echo "<b>Laufzeit (Stunden):</b> $POWER_ON_HOURS</p>"
-        echo "<table border='1' cellspacing='0' cellpadding='4' style='border-collapse:collapse;'>"
-        echo "<tr><th>Attribut</th><th>Wert</th></tr>"
-        echo "<tr><td>Reallocated_Sector_Ct</td><td>$REALLOC</td></tr>"
-        echo "<tr><td>Current_Pending_Sector</td><td>$PENDING</td></tr>"
-        echo "<tr><td>Offline_Uncorrectable</td><td>$OFFLINE</td></tr>"
-        echo "<tr><td>UDMA_CRC_Error_Count</td><td>$CRC</td></tr>"
-        echo "</table>"
-        echo "<p style='color:red;font-weight:bold;'>!!! Sofort prüfen !!!</p><hr>"
-        } >> "$WARN_BODY"
-    else
-        echo "<p style='color:green;'>Status: Alles in Ordnung.</p>" >> "$MAIL_BODY"
-    fi
-
-    # Verlauf abspeichern
-    echo "$(date +%F) $REALLOC $PENDING $OFFLINE" >> "$HISTORY_FILE"
-    tail -n 7 "$HISTORY_FILE" > "$HISTORY_FILE.tmp" && mv "$HISTORY_FILE.tmp" "$HISTORY_FILE"
-
+    # Verlauf
     echo "<pre style='background:#f4f4f4; padding:6px;'>" >> "$MAIL_BODY"
     echo "Historie & Trend (letzte 7 Läufe):" >> "$MAIL_BODY"
     awk '{printf "%s  R:%s  P:%s  O:%s\n",$1,$2,$3,$4}' "$HISTORY_FILE" >> "$MAIL_BODY"
@@ -115,13 +97,12 @@ done
 echo "</body></html>" >> "$MAIL_BODY"
 echo "</body></html>" >> "$WARN_BODY"
 
-# Zusammenfassung-Mail (immer)
-mail -a "Content-Type: text/html; charset=UTF-8" \
+# Versand
+mail -a "MIME-Version: 1.0" -a "Content-Type: text/html; charset=UTF-8" \
      -s "[$HOSTNAME] SMART-Report" root < "$MAIL_BODY"
 
-# Warn-Mail bei kritischen Werten (jetzt auch HTML)
 if [ "$CRITICAL_FOUND" -eq 1 ]; then
-    mail -a "Content-Type: text/html; charset=UTF-8" \
+    mail -a "MIME-Version: 1.0" -a "Content-Type: text/html; charset=UTF-8" \
          -s "[$HOSTNAME] !!! KRITISCHE SMART WARNUNG !!!" root < "$WARN_BODY"
 fi
 
