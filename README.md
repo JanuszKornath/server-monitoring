@@ -1,32 +1,54 @@
-Install Midnight Commander
+# Useful beforehand
+## Install Midnight Commander
 
+```
 sudo apt install mc
+```
 
-Configure Postfix
-
+## Configure Postfix
+### Install Postfix
+```
 sudo apt update
 sudo apt install postfix mailutils libsasl2-modules -y
 sudo nano /etc/postfix/main.cf
 sudo nano /etc/postfix/sasl_passwd
 sudo chmod 600 /etc/postfix/sasl_passwd
 sudo postmap /etc/postfix/sasl_passwd
+```
 
-alis für root setzen
+### Set alias for root
+```
 sudo nano /etc/aliases
 sudo newaliases
+```
 
-cronjobs
+# auto-update_debian.sh
+## Implement cronjob
+```
 sudo crontab -e
+```
+```
 MAILTO=""
 #Serverupdates machen
 0 15 */4 * * /usr/local/bin/auto-update.sh >> /var/log/auto-update.log 2>&1
-
+```
+# disk_usage.sh
+## Implement cronjob
+```
+sudo crontab -e
+```
+```
+MAILTO=""
 #Auslastung der Festplatten messen
 30 4 * * * /usr/local/bin/disk_usage.sh 2>&1
+```
 
-Set logrotations for scripts
+## Set logrotation
 
+```
 sudo nano /etc/logrotate.d/disk_usage
+```
+```
 /var/log/disk_usage.log {
     weekly
     rotate 5
@@ -37,3 +59,4 @@ sudo nano /etc/logrotate.d/disk_usage
     notifempty
     create 640 root adm
 }
+```
