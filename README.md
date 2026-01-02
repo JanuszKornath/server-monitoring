@@ -23,6 +23,10 @@ sudo newaliases
 ```
 
 # auto-update_debian.sh
+## Make script executable
+```
+chmod +x /usr/local/bin/auto-update.sh
+```
 ## Implement cronjob
 ```
 sudo crontab -e
@@ -33,6 +37,10 @@ MAILTO=""
 0 15 */4 * * /usr/local/bin/auto-update.sh >> /var/log/auto-update.log 2>&1
 ```
 # disk_usage.sh
+## Make script executable
+```
+chmod +x /usr/local/bin/disk_usage.sh
+```
 ## Implement cronjob
 ```
 sudo crontab -e
