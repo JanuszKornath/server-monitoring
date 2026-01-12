@@ -1,22 +1,22 @@
 #!/bin/bash
 
 HOSTNAME=$(hostname)
-# PFAD ZU DEINEN DOCKER-PROJEKTEN (bitte anpassen!)
+# PFAD ZU DOCKER-PROJEKTEN (bitte anpassen!)
 DOCKER_DIR="/srv/docker" 
 
-# === 1. APT-Updates prüfen ===
+# === APT-Updates prüfen ===
 SIM_LOG=$(mktemp)
 apt-get -s dist-upgrade > "$SIM_LOG" 2>&1
 APT_PENDING=$(grep -c '^Inst ' "$SIM_LOG")
 rm -f "$SIM_LOG"
 
-# === 2. Snap-Updates prüfen ===
+# === Snap-Updates prüfen ===
 SNAP_PENDING=0
 if command -v snap >/dev/null 2>&1; then
     SNAP_PENDING=$(snap refresh --list | tail -n +2 | wc -l)
 fi
 
-# === 3. Docker-Updates prüfen & ausführen ===
+# === Docker-Updates prüfen & ausführen ===
 DOCKER_UPDATED=0
 if command -v docker-compose >/dev/null 2>&1 || docker compose version >/dev/null 2>&1; then
     # Prüfen, ob wir das alte 'docker-compose' oder das neue 'docker compose' nutzen
@@ -39,7 +39,7 @@ if command -v docker-compose >/dev/null 2>&1 || docker compose version >/dev/nul
     done
 fi
 
-# === 4. APT & Snap Updates ausführen ===
+# === APT & Snap Updates ausführen ===
 APT_INSTALLED=0
 SNAP_INSTALLED=0
 
@@ -55,7 +55,7 @@ if [ "$SNAP_PENDING" -gt 0 ]; then
     SNAP_INSTALLED=$SNAP_PENDING
 fi
 
-# === 5. Mail-Logik ===
+# === Mail-Logik ===
 if [ -f /var/run/reboot-required ]; then
     MAIL_SUBJECT="[${HOSTNAME}] Reboot erforderlich (Updates installiert)"
     REBOOT_MSG="Ein System-Neustart ist erforderlich."
@@ -74,7 +74,7 @@ else
     exit 0
 fi
 
-# === 6. Mail versenden ===
+# === Mail versenden ===
 MAIL_BODY="Hallo,
 
 auf dem Server ${HOSTNAME} wurden Updates durchgeführt.
