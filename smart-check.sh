@@ -1,4 +1,5 @@
 #!/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 HOSTNAME=$(hostname)
 DATA_DIR="/var/lib/smart-summary"
