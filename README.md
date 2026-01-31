@@ -10,9 +10,9 @@ sudo apt install mc
 ```
 sudo apt update
 sudo apt install postfix mailutils libsasl2-modules -y
+```
+```
 sudo nano /etc/postfix/main.cf
-```
-```
 # gmail
 relayhost = [smtp.gmail.com]:587
 
@@ -27,6 +27,7 @@ smtp_sasl_tls_security_options = noanonymous
 ```
 ```
 sudo nano /etc/postfix/sasl_passwd
+[smtp.gmail.com]:587 smth@gmail.com:APP_PASSWORD
 sudo chmod 600 /etc/postfix/sasl_passwd
 sudo postmap /etc/postfix/sasl_passwd
 ```
