@@ -30,6 +30,8 @@ sudo nano /etc/postfix/sasl_passwd
 [smtp.gmail.com]:587 smth@gmail.com:APP_PASSWORD
 sudo chmod 600 /etc/postfix/sasl_passwd
 sudo postmap /etc/postfix/sasl_passwd
+sudo systemctl restart postfix
+sudo systemctl status postfix
 ```
 
 ### Set alias for root
