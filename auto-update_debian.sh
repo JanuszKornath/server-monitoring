@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Alle Ausgaben mit Zeitstempel versehen (z. B. für Cron-/Journal-Logs)
+exec > >(while IFS= read -r line; do printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$line"; done) 2>&1
+
 HOSTNAME=$(hostname)
 # PFAD ZU DOCKER-PROJEKTEN (bitte anpassen!)
 DOCKER_DIR="/srv/docker" 
@@ -44,9 +47,9 @@ APT_INSTALLED=0
 SNAP_INSTALLED=0
 
 if [ "$APT_PENDING" -gt 0 ]; then
-    apt update -qq
-    apt -y dist-upgrade -qq > /dev/null 2>&1
-    apt -y autoremove -qq > /dev/null 2>&1
+    apt-get update -qq
+    apt-get -y dist-upgrade -qq > /dev/null 2>&1
+    apt-get -y autoremove -qq > /dev/null 2>&1
     APT_INSTALLED=$APT_PENDING
 fi
 
