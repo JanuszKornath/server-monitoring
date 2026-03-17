@@ -28,7 +28,6 @@ fi
 # === 4. Docker-Updates prüfen & ausführen ===
 DOCKER_UPDATED=0
 if command -v docker >/dev/null 2>&1; then
-    # Prüfen, ob 'docker compose' (V2) oder 'docker-compose' (V1) installiert ist
     DOCKER_CMD=""
     if docker compose version >/dev/null 2>&1; then
         DOCKER_CMD="docker compose"
@@ -36,27 +35,24 @@ if command -v docker >/dev/null 2>&1; then
         DOCKER_CMD="docker-compose"
     fi
 
-    if [ -n "$DOCKER_CMD" ]; then
-        # Finde alle Verzeichnisse mit docker-compose.yml
-        for dir in $(find "$DOCKER_DIR" -maxdepth 2 -name "docker-compose.yml" -exec dirname {} +); do
-            # In Subshell ausführen, damit das Hauptskript im Verzeichnis bleibt
+    if [ -n "$DOCKER_CMD" ]; then        
+        for dir in $(find "$DOCKER_DIR" -maxdepth 3 -name "docker-compose.yml" -exec dirname {} +); do
             (
-                cd "$dir" || exit
-                # Pull neue Images
-                PULL_OUTPUT=$($DOCKER_CMD pull -q 2>/dev/null)
-
-                if [ -n "$PULL_OUTPUT" ]; then
-                    # Neustart der betroffenen Container
-                    UPDATED_INFO=$($DOCKER_CMD up -d 2>&1)
-                    COUNT=$(echo "$UPDATED_INFO" | grep -cE 'Started|Recreated|Updated')
-                    echo "$COUNT" > /tmp/docker_count_tmp
-                else
-                    echo "0" > /tmp/docker_count_tmp
+                cd "$dir" || exit                
+                $DOCKER_CMD pull > /dev/null 2>&1
+                
+                # up -d fängt nur Änderungen ab. 
+                # Wir loggen die Ausgabe, um zu sehen, ob wirklich was "recreated" wurde.
+                UPDATED_INFO=$($DOCKER_CMD up -d 2>&1)
+                
+                # Prüfen, ob in der Ausgabe 'Recreated' oder 'Started' (bei neuen Images) steht
+                if echo "$UPDATED_INFO" | grep -qE 'Recreated|Updated'; then
+                    echo "1" > /tmp/docker_changed_flag
                 fi
             )
-            if [ -f /tmp/docker_count_tmp ]; then
-                DOCKER_UPDATED=$((DOCKER_UPDATED + $(cat /tmp/docker_count_tmp)))
-                rm -f /tmp/docker_count_tmp
+            if [ -f /tmp/docker_changed_flag ]; then
+                DOCKER_UPDATED=$((DOCKER_UPDATED + 1))
+                rm -f /tmp/docker_changed_flag
             fi
         done
     fi
