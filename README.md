@@ -42,29 +42,29 @@ sudo newaliases
 
 # auto-update_debian.sh
 
-Spielt APT-, Snap- und Docker-Updates ein und meldet per Mail an `root`, was
-installiert wurde. Die Mail geht nur raus, wenn tatsächlich etwas passiert ist
-oder ein Neustart aussteht — ein Lauf ohne Updates bleibt still.
+Installs APT, Snap and Docker updates and reports by mail to `root` what was
+installed. The mail is only sent when something actually happened or a reboot
+is pending — a run without updates stays silent.
 
-Für Docker sucht das Skript bis drei Ebenen tief unterhalb von `DOCKER_DIR`
-nach `docker-compose.yml`, zieht die Images und startet die Stacks neu. Gezählt
-wird nur, was dabei wirklich neu erstellt wurde.
+For Docker the script looks up to three levels below `DOCKER_DIR` for
+`docker-compose.yml`, pulls the images and restarts the stacks. Only what was
+really recreated is counted.
 
 ## Configure
 
-Im Skript anzupassen:
+To adjust in the script:
 
 ```
-DOCKER_DIR="/srv/docker"      # Pfad zu den Docker-Projekten
+DOCKER_DIR="/srv/docker"      # path to the Docker projects
 ```
 
-Steht `/var/run/reboot-required`, weist die Mail zusätzlich auf den nötigen
-Neustart hin. Der Neustart selbst wird nicht ausgeführt.
+If `/var/run/reboot-required` exists, the mail also points out the pending
+reboot. The reboot itself is not performed.
 
 ## Make script executable
 
-Im Repo heißt das Skript `auto-update_debian.sh`, unter `/usr/local/bin` wird
-es hier als `auto-update.sh` abgelegt.
+In this repository the script is named `auto-update_debian.sh`; under
+`/usr/local/bin` it is deployed as `auto-update.sh`.
 
 ```
 chmod +x /usr/local/bin/auto-update.sh
@@ -79,37 +79,38 @@ MAILTO=""
 0 15 */4 * * /usr/local/bin/auto-update.sh >> /var/log/auto-update.log 2>&1
 ```
 
-Jede Ausgabezeile wird vom Skript selbst mit einem Zeitstempel im Format
-`[YYYY-MM-DD HH:MM:SS]` versehen, damit die Logdatei über mehrere Läufe hinweg
-lesbar bleibt. Dafür ist in der Crontab nichts weiter nötig.
+Every output line is prefixed by the script itself with a timestamp in the
+format `[YYYY-MM-DD HH:MM:SS]`, so the log file stays readable across runs.
+Nothing further is needed in the crontab.
+
 # disk_usage.sh
 
-Prüft die Belegung aller Mountpoints und schickt eine Mail, sobald einer den
-Schwellwert überschreitet. Die Mountpoints werden per `df` selbst ermittelt,
-`tmpfs`, `udev`, `overlay` und `loop` bleiben außen vor.
+Checks the usage of all mount points and sends a mail as soon as one exceeds
+the threshold. The mount points are determined via `df`; `tmpfs`, `udev`,
+`overlay` and `loop` are left out.
 
-Jeder Lauf wird protokolliert, auch wenn keine Mail nötig war — die Logdatei
-ist damit ein durchgehender Verlauf der Belegung, nicht nur ein Fehlerlog.
+Every run is logged, even when no mail was necessary — the log file is
+therefore a continuous record of usage, not just an error log.
 
-Der Versand läuft über `sendmail -t` und wird bei Fehlschlag wiederholt.
+Mail is sent through `sendmail -t` and retried on failure.
 
 ## Configure
 
-Im Skript anzupassen:
+To adjust in the script:
 
 ```
-THRESHOLD=90                         # Schwellwert in Prozent
-EMAIL="root"                         # Empfänger, Weiterleitung über /etc/aliases
+THRESHOLD=90                         # threshold in percent
+EMAIL="root"                         # recipient, forwarded via /etc/aliases
 LOGFILE="/var/log/disk_usage.log"
-MAX_RETRIES=3                        # Sendeversuche
-RETRY_INTERVAL=60                    # Sekunden zwischen den Versuchen
+MAX_RETRIES=3                        # send attempts
+RETRY_INTERVAL=60                    # seconds between attempts
 
-WHITELIST=("/" "/boot" "/var")       # wird immer überwacht, wenn vorhanden
-BLACKLIST=("/snap" "/run" "/tmp")    # wird nie überwacht
+WHITELIST=("/" "/boot" "/var")       # always monitored, if present
+BLACKLIST=("/snap" "/run" "/tmp")    # never monitored
 ```
 
-Die Blacklist sticht die Whitelist: ein Mountpoint, der in beiden steht, wird
-nicht überwacht.
+The blacklist beats the whitelist: a mount point listed in both is not
+monitored.
 
 ## Make script executable
 ```
@@ -145,26 +146,24 @@ sudo nano /etc/logrotate.d/disk_usage
 
 # rsnapshot-error-mail.sh
 
-Durchsucht das rsnapshot-Log nach `ERROR`-Zeilen und schickt eine Mail, wenn
-welche gefunden werden. Gemeldet wird nur, was **seit dem letzten Lauf** neu
-hinzugekommen ist — dafür merkt sich das Skript in einer Zustandsdatei, bis
-wann es zuletzt geschaut hat. Ein einmaliger Fehler landet dadurch genau einmal
-im Postfach und nicht bei jedem weiteren Lauf erneut.
+Scans the rsnapshot log for `ERROR` lines and sends a mail when it finds any.
+Only what is new **since the last run** is reported, so a one-off error lands
+in the mailbox exactly once instead of again on every following run.
 
-Das Backup-Level (`ALPHA`, `BETA`, …) wird aus der letzten `started`-Zeile des
-Logs ermittelt und steht im Betreff. Ist es nicht ermittelbar, steht dort
-`UNKNOWN`. Der Mail liegen zusätzlich die letzten 20 Logzeilen bei.
+The backup level (`ALPHA`, `BETA`, …) is taken from the last `started` line of
+the log and appears in the subject; if it cannot be determined it reads
+`UNKNOWN`. The mail also carries the last 20 log lines.
 
-Existiert das Log nicht, endet das Skript kommentarlos.
+If the log does not exist, the script exits silently.
 
 ## Configure
 
-Im Skript anzupassen:
+To adjust in the script:
 
 ```
 LOG_FILE="/var/log/rsnapshot.log"
 STATEFILE="/var/tmp/rsnapshot_check.state"
-EMAIL="root"                          # Weiterleitung über /etc/aliases
+EMAIL="root"                          # forwarded via /etc/aliases
 ```
 
 ## Make script executable
@@ -175,8 +174,8 @@ chmod +x /usr/local/bin/rsnapshot-error-mail.sh
 
 ## Implement cronjob
 
-Der Job gehört zeitlich **hinter** den rsnapshot-Lauf, sonst prüft er das Log,
-bevor das Backup hineingeschrieben hat.
+The job belongs **after** the rsnapshot run, otherwise it inspects the log
+before the backup has written to it.
 
 ```
 sudo crontab -e
@@ -187,28 +186,28 @@ MAILTO=""
 30 3 * * * /usr/local/bin/rsnapshot-error-mail.sh
 ```
 
-Als Merker dient die Position im Log: die Zustandsdatei hält fest, bis zu
-welcher Zeile geprüft wurde, dazu eine Prüfsumme genau dieser Zeile. Steht dort
-beim nächsten Lauf etwas anderes, wurde das Log rotiert und es wird von vorn
-gelesen. Damit wird jede Logzeile genau einmal geprüft — es gibt keinen
-Zeitfenster-Rand, an dem ein Fehler zwischen zwei Läufe fallen könnte.
+Progress is tracked by position in the log: the state file records up to which
+line the log was read, plus a checksum of exactly that line. If something else
+is found there on the next run, the log was rotated and it is read from the
+start. Every log line is therefore examined exactly once — there is no window
+boundary an error could fall between.
 
-Der erste Lauf nach der Umstellung von der früheren zeitstempelbasierten
-Zustandsdatei meldet die Fehler des aktuellen Logs einmalig erneut.
+The first run after the switch from the earlier timestamp-based state file
+reports the errors currently in the log once.
 
-Die Zustandsdatei liegt unter `/var/tmp`. Räumt das System `/var/tmp` auf, geht
-der Merker verloren und der nächste Lauf meldet alle Fehler aus dem Log erneut.
-Wer das vermeiden will, legt `STATEFILE` nach `/var/lib`.
+The state file lives under `/var/tmp`. If the system cleans out `/var/tmp` the
+marker is lost and the next run reports all errors in the log again. To avoid
+that, move `STATEFILE` to `/var/lib`.
 
-Nicht abgedeckt: Fehler, die nach dem letzten Prüflauf geschrieben und vor dem
-nächsten wegrotiert werden, sind im aktuellen Log nicht mehr enthalten. Der
-Prüfjob sollte deshalb zeitlich näher am Backup liegen als an der Logrotation.
+Not covered: errors written after the last check and rotated away before the
+next one are no longer in the current log. The check job should therefore sit
+closer in time to the backup than to the log rotation.
 
 # smart-check.sh
 
-Liest die SMART-Werte aller Platten aus und schickt einen HTML-Report an `root`.
-Der Betreff richtet sich nach dem Befund, damit eine ausfallende Platte im
-Posteingang nicht wie ein normaler Tagesreport aussieht.
+Reads the SMART values of all disks and sends an HTML report to `root`. The
+subject reflects the finding, so a failing disk does not look like an ordinary
+daily report in the inbox.
 
 ## Install smartmontools
 
@@ -224,8 +223,8 @@ chmod +x /usr/local/bin/smart-check.sh
 
 ## Implement cronjob
 
-Das Skript braucht Root-Rechte, `smartctl` liest sonst nichts aus. Der Cronjob
-gehört deshalb in die Root-Crontab.
+The script needs root privileges, otherwise `smartctl` reads nothing. The
+cronjob therefore belongs in root's crontab.
 
 ```
 sudo crontab -e
@@ -236,67 +235,67 @@ MAILTO=""
 0 6 * * * /usr/local/bin/smart-check.sh
 ```
 
-Ein **täglicher** Lauf ist die Annahme, auf der die Bewertung aufbaut: das
-Historien-Fenster umfasst 7 Läufe, entspricht also einer Woche, und die
-Persistenz-Regel greift nach 3 Läufen, also nach 3 Tagen. Wer seltener prüft,
-dehnt diese Zeiträume entsprechend.
+A **daily** run is the assumption the assessment is built on: the history
+window spans 7 runs, so one week, and the persistence rule takes effect after
+3 runs, so three days. Checking less often stretches these periods
+accordingly.
 
-## Bewertung
+## Assessment
 
-| Attribut | WARNUNG | KRITISCH |
+The status names below are the literal values the script writes into the mail.
+
+| Attribute | WARNUNG | KRITISCH |
 |---|---|---|
 | SMART overall-health | – | `FAILED` |
-| `Reallocated_Sector_Ct` (5) | ab 1 | über 50 oder Zuwachs ab 10 im Fenster |
-| `Current_Pending_Sector` (197) | ab 1 | über 10 oder 3 Läufe in Folge über 0 |
-| `Offline_Uncorrectable` (198) | ab 1 | über 10 oder 3 Läufe in Folge über 0 |
-| `Reported_Uncorrect` (187) | ab 1 | über 10 oder Zuwachs ab 5 im Fenster |
-| `Command_Timeout` (188) | ab 1 | über 10 oder Zuwachs ab 5 im Fenster |
-| `UDMA_CRC_Error_Count` (199) | Zuwachs seit letztem Lauf | nie |
+| `Reallocated_Sector_Ct` (5) | from 1 | above 50, or growth of 10 or more within the window |
+| `Current_Pending_Sector` (197) | from 1 | above 10, or above 0 in 3 consecutive runs |
+| `Offline_Uncorrectable` (198) | from 1 | above 10, or above 0 in 3 consecutive runs |
+| `Reported_Uncorrect` (187) | from 1 | above 10, or growth of 5 or more within the window |
+| `Command_Timeout` (188) | from 1 | above 10, or growth of 5 or more within the window |
+| `UDMA_CRC_Error_Count` (199) | growth since the last run | never |
 
-`KRITISCH` bedeutet „Platte tauschen", `WARNUNG` bedeutet „beobachten". Ein
-einzelner Pending Sector verschwindet oft von selbst wieder, sobald erneut auf
-den Sektor geschrieben wird — kritisch wird er erst, wenn er bleibt oder viele
-werden.
+`KRITISCH` means "replace the disk", `WARNUNG` means "keep an eye on it". A
+single pending sector often disappears by itself once the sector is written to
+again — it only becomes critical when it stays, or when many accumulate.
 
-`UDMA_CRC_Error_Count` zählt keine Medienfehler, sondern Übertragungsfehler auf
-dem SATA-Bus: Kabel, Stecker, Backplane. Die Abhilfe ist umstecken, nicht
-tauschen. Der Zähler wird nie zurückgesetzt, deshalb warnt nur ein Zuwachs; ein
-alter, unveränderter Stand erscheint als bloßer Hinweis.
+`UDMA_CRC_Error_Count` does not count media errors but transfer errors on the
+SATA bus: cable, connector, backplane. The remedy is reseating, not replacing.
+The counter is never reset, which is why only growth warns; an old, unchanged
+value appears as a mere notice.
 
-Bei kritischem Befund bekommt die Mail zusätzlich `X-Priority: 1` und
+On a critical finding the mail additionally carries `X-Priority: 1` and
 `Importance: High`.
 
-## Kritisch-Marker
+## Critical latch
 
-Ein einmal kritischer Befund bleibt kritisch, bis er nachweislich erledigt ist.
-Ohne das würde eine Platte allein dadurch wieder unauffällig, dass der
-auslösende Zuwachs aus dem Historien-Fenster rutscht.
+A finding that was once critical stays critical until it is demonstrably
+resolved. Without that, a disk would become unremarkable again merely because
+the triggering growth scrolled out of the history window.
 
-Aufgehoben wird der Marker auf drei Wegen:
+The latch is lifted in three ways:
 
-1. **Tausch.** Historie und Marker hängen an der Seriennummer, nicht am
-   Kernel-Namen. Eine neue Platte startet dadurch mit sauberem Zustand.
-2. **Wert wieder in Ordnung.** Stehen alle auslösenden Attribute 3 Läufe in
-   Folge wieder auf 0, hebt sich der Marker selbst auf. Monotone Zähler wie
-   `Reallocated_Sector_Ct` erreichen die 0 nie wieder — solche Marker laufen
-   bewusst nicht von allein aus.
-3. **Quittierung** nach einer Reparatur, siehe unten.
+1. **Replacement.** History and latch are keyed by serial number, not by
+   kernel name. A new disk therefore starts with a clean state.
+2. **Values back to normal.** Once all triggering attributes read 0 for 3
+   consecutive runs, the latch lifts itself. Monotonic counters such as
+   `Reallocated_Sector_Ct` never reach 0 again — those latches deliberately do
+   not expire on their own.
+3. **Acknowledgement** after a repair, see below.
 
 ```
-sudo /usr/local/bin/smart-check.sh --status            # gesetzte Marker anzeigen
-sudo /usr/local/bin/smart-check.sh --clear /dev/sda    # nach Tausch oder Reparatur
+sudo /usr/local/bin/smart-check.sh --status            # show latches in place
+sudo /usr/local/bin/smart-check.sh --clear /dev/sda    # after replacement or repair
 sudo /usr/local/bin/smart-check.sh --clear-all
 sudo /usr/local/bin/smart-check.sh --help
 ```
 
-`--clear` nimmt auch den Kernel-Namen (`sda`) oder die Seriennummer und findet
-eine bereits ausgebaute Platte über die gespeicherte Seriennummer. Es ist keine
-Stummschaltung: sind die Werte weiterhin kritisch, setzt der nächste Lauf den
-Marker sofort neu.
+`--clear` also accepts the kernel name (`sda`) or the serial number, and finds
+an already removed disk through the stored serial. It is not a mute switch: if
+the values are still critical, the next run sets the latch again right away.
 
-## Datenverzeichnis
+## Data directory
 
-Historie und Marker liegen unter `/var/lib/smart-summary`, je Platte
-`<seriennummer>.history` und `<seriennummer>.state`. Das Verzeichnis wird beim
-ersten Lauf angelegt. Zustandsdateien ausgebauter Platten bleiben liegen und
-können bei Bedarf von Hand entfernt werden.
+History and latches live under `/var/lib/smart-summary`, per disk as
+`<serial>.history` and `<serial>.state`. The directory is created on the first
+run. State files of removed disks stay behind and can be deleted by hand when
+no longer wanted.
