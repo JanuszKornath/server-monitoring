@@ -41,7 +41,31 @@ sudo newaliases
 ```
 
 # auto-update_debian.sh
+
+Spielt APT-, Snap- und Docker-Updates ein und meldet per Mail an `root`, was
+installiert wurde. Die Mail geht nur raus, wenn tatsächlich etwas passiert ist
+oder ein Neustart aussteht — ein Lauf ohne Updates bleibt still.
+
+Für Docker sucht das Skript bis drei Ebenen tief unterhalb von `DOCKER_DIR`
+nach `docker-compose.yml`, zieht die Images und startet die Stacks neu. Gezählt
+wird nur, was dabei wirklich neu erstellt wurde.
+
+## Configure
+
+Im Skript anzupassen:
+
+```
+DOCKER_DIR="/srv/docker"      # Pfad zu den Docker-Projekten
+```
+
+Steht `/var/run/reboot-required`, weist die Mail zusätzlich auf den nötigen
+Neustart hin. Der Neustart selbst wird nicht ausgeführt.
+
 ## Make script executable
+
+Im Repo heißt das Skript `auto-update_debian.sh`, unter `/usr/local/bin` wird
+es hier als `auto-update.sh` abgelegt.
+
 ```
 chmod +x /usr/local/bin/auto-update.sh
 ```
@@ -54,7 +78,39 @@ MAILTO=""
 #Serverupdates machen
 0 15 */4 * * /usr/local/bin/auto-update.sh >> /var/log/auto-update.log 2>&1
 ```
+
+Jede Ausgabezeile wird vom Skript selbst mit einem Zeitstempel im Format
+`[YYYY-MM-DD HH:MM:SS]` versehen, damit die Logdatei über mehrere Läufe hinweg
+lesbar bleibt. Dafür ist in der Crontab nichts weiter nötig.
 # disk_usage.sh
+
+Prüft die Belegung aller Mountpoints und schickt eine Mail, sobald einer den
+Schwellwert überschreitet. Die Mountpoints werden per `df` selbst ermittelt,
+`tmpfs`, `udev`, `overlay` und `loop` bleiben außen vor.
+
+Jeder Lauf wird protokolliert, auch wenn keine Mail nötig war — die Logdatei
+ist damit ein durchgehender Verlauf der Belegung, nicht nur ein Fehlerlog.
+
+Der Versand läuft über `sendmail -t` und wird bei Fehlschlag wiederholt.
+
+## Configure
+
+Im Skript anzupassen:
+
+```
+THRESHOLD=90                         # Schwellwert in Prozent
+EMAIL="root"                         # Empfänger, Weiterleitung über /etc/aliases
+LOGFILE="/var/log/disk_usage.log"
+MAX_RETRIES=3                        # Sendeversuche
+RETRY_INTERVAL=60                    # Sekunden zwischen den Versuchen
+
+WHITELIST=("/" "/boot" "/var")       # wird immer überwacht, wenn vorhanden
+BLACKLIST=("/snap" "/run" "/tmp")    # wird nie überwacht
+```
+
+Die Blacklist sticht die Whitelist: ein Mountpoint, der in beiden steht, wird
+nicht überwacht.
+
 ## Make script executable
 ```
 chmod +x /usr/local/bin/disk_usage.sh
@@ -86,6 +142,54 @@ sudo nano /etc/logrotate.d/disk_usage
     create 640 root adm
 }
 ```
+
+# rsnapshot-error-mail.sh
+
+Durchsucht das rsnapshot-Log nach `ERROR`-Zeilen und schickt eine Mail, wenn
+welche gefunden werden. Gemeldet wird nur, was **seit dem letzten Lauf** neu
+hinzugekommen ist — dafür merkt sich das Skript in einer Zustandsdatei, bis
+wann es zuletzt geschaut hat. Ein einmaliger Fehler landet dadurch genau einmal
+im Postfach und nicht bei jedem weiteren Lauf erneut.
+
+Das Backup-Level (`ALPHA`, `BETA`, …) wird aus der letzten `started`-Zeile des
+Logs ermittelt und steht im Betreff. Ist es nicht ermittelbar, steht dort
+`UNKNOWN`. Der Mail liegen zusätzlich die letzten 20 Logzeilen bei.
+
+Existiert das Log nicht, endet das Skript kommentarlos.
+
+## Configure
+
+Im Skript anzupassen:
+
+```
+LOG_FILE="/var/log/rsnapshot.log"
+STATEFILE="/var/tmp/rsnapshot_check.state"
+EMAIL="root"                          # Weiterleitung über /etc/aliases
+```
+
+## Make script executable
+
+```
+chmod +x /usr/local/bin/rsnapshot-error-mail.sh
+```
+
+## Implement cronjob
+
+Der Job gehört zeitlich **hinter** den rsnapshot-Lauf, sonst prüft er das Log,
+bevor das Backup hineingeschrieben hat.
+
+```
+sudo crontab -e
+```
+```
+MAILTO=""
+#rsnapshot-Log auf Fehler prüfen
+30 3 * * * /usr/local/bin/rsnapshot-error-mail.sh
+```
+
+Die Zustandsdatei liegt unter `/var/tmp`. Räumt das System `/var/tmp` auf, geht
+der Merker verloren und der nächste Lauf meldet alle Fehler aus dem Log erneut.
+Wer das vermeiden will, legt `STATEFILE` nach `/var/lib`.
 
 # smart-check.sh
 
