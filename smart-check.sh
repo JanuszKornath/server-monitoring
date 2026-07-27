@@ -5,19 +5,15 @@ HOSTNAME=$(hostname)
 DATA_DIR="/var/lib/smart-summary"
 mkdir -p "$DATA_DIR"
 
-MAIL_BODY=$(mktemp)
-DISK_SECTIONS=$(mktemp)
-DISKS=$(lsblk -dno NAME,TYPE | awk '$2=="disk"{print $1}')
-
 # Wie viele Läufe in der Historie vorgehalten werden. Bei täglichem Cron-Lauf
 # entspricht das einem Beobachtungsfenster von einer Woche.
 HISTORY_RUNS=7
 
-# Gesamtstatus über alle Platten hinweg: OK < HINWEIS < WARNUNG < KRITISCH
-OVERALL_STATUS="OK"
-CRITICAL_DISKS=""
-WARNING_DISKS=""
-PROBLEM_DETAILS=""
+# Wie viele aufeinanderfolgende saubere Läufe einen gesetzten Kritisch-Marker
+# automatisch aufheben.
+CLEAR_RUNS=3
+
+DISKS=$(lsblk -dno NAME,TYPE | awk '$2=="disk"{print $1}')
 
 # Nicht-numerische Rohwerte (z. B. "1,234" bei NVMe oder "0 0 0" bei manchen
 # Command_Timeout-Implementierungen) würden den Zahlenvergleich abbrechen lassen.
@@ -29,6 +25,147 @@ to_number() {
         printf '0'
     fi
 }
+
+# Die Seriennummer ist die einzige stabile Identität einer Platte: Kernel-Namen
+# wie sda können sich nach einem Reboot vertauschen, und beim Plattentausch
+# bliebe der Name gleich. Historie und Marker hängen deshalb an der Serie.
+disk_serial() {
+    smartctl -i "$1" 2>/dev/null | awk -F': +' '/Serial Number/ {print $2; exit}' | tr -d '[:space:]'
+}
+
+# Dateibasis für Historie und Marker. Ohne lesbare Seriennummer bleibt nur der
+# Kernel-Name als Notbehelf — dann ist ein Plattentausch nicht erkennbar und
+# muss mit --clear quittiert werden.
+state_key() {
+    local serial
+    serial=$(disk_serial "$1")
+    if [ -n "$serial" ]; then
+        printf '%s' "${serial//[^A-Za-z0-9._-]/_}"
+    else
+        printf '%s' "$(basename "$1")"
+    fi
+}
+
+state_get() {
+    [ -f "$1" ] || return 0
+    awk -F= -v k="$2" '$1==k {sub(/^[^=]*=/, ""); print; exit}' "$1"
+}
+
+# ==============================================================================
+# Kommandozeile: Marker anzeigen und quittieren
+# ==============================================================================
+
+print_status() {
+    printf '%-12s %-24s %-10s %-12s %s\n' "PLATTE" "SERIENNUMMER" "MARKER" "SEIT" "GRUND"
+    for disk in $DISKS; do
+        local device="/dev/$disk" key state serial latched since reason
+        device="/dev/$disk"
+        key=$(state_key "$device")
+        state="$DATA_DIR/$key.state"
+        serial=$(disk_serial "$device"); serial=${serial:-unbekannt}
+        latched=$(state_get "$state" LATCHED)
+        since=$(state_get "$state" LATCHED_SINCE)
+        reason=$(state_get "$state" LATCH_REASON)
+        if [ "$latched" = "1" ]; then
+            printf '%-12s %-24s %-10s %-12s %s\n' "$device" "$serial" "gesetzt" "${since:--}" "${reason:--}"
+        else
+            printf '%-12s %-24s %-10s %-12s %s\n' "$device" "$serial" "-" "-" "-"
+        fi
+    done
+}
+
+# Argument darf ein Gerät (/dev/sda, sda) oder direkt eine Seriennummer sein.
+# Nach einem Tausch existiert der Geräteknoten der alten Platte nicht mehr,
+# deshalb werden mehrere Deutungen des Arguments durchprobiert statt einer.
+clear_latch() {
+    local target="$1" candidates=() key state serial
+    case "$target" in
+        /dev/*) [ -e "$target" ] && candidates+=("$(state_key "$target")") ;;
+        *)      [ -e "/dev/$target" ] && candidates+=("$(state_key "/dev/$target")") ;;
+    esac
+    # Argument direkt als Seriennummer deuten
+    candidates+=("${target//[^A-Za-z0-9._-]/_}")
+    # Und in den abgelegten Zuständen nach der Seriennummer suchen, damit auch
+    # eine bereits ausgebaute Platte quittiert werden kann.
+    for state in "$DATA_DIR"/*.state; do
+        [ -f "$state" ] || continue
+        serial=$(state_get "$state" SERIAL)
+        if [ -n "$serial" ] && [ "$serial" = "$target" ]; then
+            candidates+=("$(basename "$state" .state)")
+        fi
+    done
+
+    for key in "${candidates[@]}"; do
+        state="$DATA_DIR/$key.state"
+        if [ -f "$state" ] && [ "$(state_get "$state" LATCHED)" = "1" ]; then
+            rm -f "$state"
+            echo "Marker für '$target' (Schlüssel: $key) aufgehoben."
+            return 0
+        fi
+    done
+    echo "Für '$target' ist kein Marker gesetzt." >&2
+    return 1
+}
+
+case "${1:-}" in
+    --status)
+        print_status
+        exit 0
+        ;;
+    --clear)
+        if [ -z "${2:-}" ]; then
+            echo "Verwendung: $0 --clear <gerät|seriennummer>" >&2
+            exit 2
+        fi
+        clear_latch "$2"
+        exit $?
+        ;;
+    --clear-all)
+        rm -f "$DATA_DIR"/*.state
+        echo "Alle Marker aufgehoben."
+        exit 0
+        ;;
+    --help|-h)
+        cat <<EOF
+Verwendung: $0 [OPTION]
+
+Ohne Option: SMART-Prüfung aller Platten und Versand des Reports an root.
+
+  --status                     gesetzte Kritisch-Marker anzeigen
+  --clear <gerät|seriennr>     Marker nach Tausch oder Reparatur quittieren
+  --clear-all                  alle Marker aufheben
+  --help                       diese Hilfe
+
+Ein Kritisch-Marker wird gesetzt, sobald eine Platte als KRITISCH bewertet
+wird, und bleibt danach bestehen, auch wenn die auslösende Regel nicht mehr
+greift. Er verschwindet von selbst, wenn die Platte getauscht wurde (neue
+Seriennummer) oder wenn alle auslösenden Attribute über $CLEAR_RUNS Läufe
+wieder auf 0 stehen. Attribute wie Reallocated_Sector_Ct gehen nie auf 0
+zurück — solche Marker müssen nach einer Reparatur mit --clear quittiert
+werden.
+EOF
+        exit 0
+        ;;
+    "")
+        ;;
+    *)
+        echo "Unbekannte Option: $1 (siehe $0 --help)" >&2
+        exit 2
+        ;;
+esac
+
+# ==============================================================================
+# Normaler Prüflauf
+# ==============================================================================
+
+MAIL_BODY=$(mktemp)
+DISK_SECTIONS=$(mktemp)
+
+# Gesamtstatus über alle Platten hinweg: OK < HINWEIS < WARNUNG < KRITISCH
+OVERALL_STATUS="OK"
+CRITICAL_DISKS=""
+WARNING_DISKS=""
+PROBLEM_DETAILS=""
 
 # Spalten der Historie: 1=Datum 2=Realloc 3=Pending 4=Offline 5=CRC
 #                       6=Reported_Uncorrect 7=Command_Timeout
@@ -78,9 +215,33 @@ raise_disk_status() {
     return 0
 }
 
+# Aktueller Rohwert eines Attributs, für die Prüfung ob ein gemerkter Befund
+# wieder abgeklungen ist. Monotone Zähler wie Reallocated_Sector_Ct erreichen
+# die 0 nie wieder — ihr Marker läuft daher bewusst nicht von selbst aus.
+attr_value() {
+    case "$1" in
+        Reallocated_Sectors)    to_number "$REALLOC" ;;
+        Current_Pending_Sector) to_number "$PENDING" ;;
+        Offline_Uncorrectable)  to_number "$OFFLINE" ;;
+        Reported_Uncorrect)     to_number "$REPORTED" ;;
+        Command_Timeout)        to_number "$CMDTIMEOUT" ;;
+        SMART-Gesamturteil)     [ "$HEALTH_FAILED" = "1" ] && echo 1 || echo 0 ;;
+        *)                      echo 0 ;;
+    esac
+}
+
 for DISK in $DISKS; do
     DEVICE="/dev/$DISK"
-    HISTORY_FILE="$DATA_DIR/$DISK.history"
+    SERIAL=$(disk_serial "$DEVICE")
+    STATE_KEY=$(state_key "$DEVICE")
+    HISTORY_FILE="$DATA_DIR/$STATE_KEY.history"
+    STATE_FILE="$DATA_DIR/$STATE_KEY.state"
+
+    # Migration: frühere Versionen haben die Historie unter dem Kernel-Namen
+    # abgelegt. Beim ersten Lauf unter dem Serien-Schlüssel wird sie übernommen.
+    if [ ! -f "$HISTORY_FILE" ] && [ -f "$DATA_DIR/$DISK.history" ] && [ "$STATE_KEY" != "$DISK" ]; then
+        mv "$DATA_DIR/$DISK.history" "$HISTORY_FILE"
+    fi
 
     # Daten auslesen
     SMART_INFO=$(smartctl -i "$DEVICE")
@@ -115,20 +276,26 @@ for DISK in $DISKS; do
 
     DISK_STATUS="OK"
     DISK_ISSUES=""
+    CRITICAL_ATTRS=""
+    CRITICAL_REASONS=""
 
     # --- SMART-Gesamturteil der Platte ---
     # "SMART overall-health self-assessment test result: FAILED!" bzw.
     # "SMART Health Status: FAILURE" ist der deutlichste Hinweis auf einen Defekt.
+    HEALTH_FAILED=0
     HEALTH_LINE=$(echo "$SMART_HEALTH" | grep -Ei "overall-health|SMART Health Status" | head -n1)
     if echo "$HEALTH_LINE" | grep -qEi "FAILED|FAILURE"; then
+        HEALTH_FAILED=1
         raise_disk_status KRITISCH
         DISK_ISSUES="${DISK_ISSUES}<li>SMART-Gesamturteil: <b>FAILED</b></li>"
+        CRITICAL_ATTRS="SMART-Gesamturteil"
+        CRITICAL_REASONS="SMART-Gesamturteil: FAILED"
     fi
 
     # HTML Output
     echo "<div style='margin-bottom: 30px; border: 1px solid #ccc; padding: 15px; border-radius: 5px;'>" >> "$DISK_SECTIONS"
     echo "<h3 style='margin-top:0; color:#2980b9;'>Disk: $DEVICE</h3>" >> "$DISK_SECTIONS"
-    echo "<p><b>Modell:</b> $MANUFACTURER $MODEL<br><b>Laufzeit:</b> $POWER_ON_HOURS Stunden</p>" >> "$DISK_SECTIONS"
+    echo "<p><b>Modell:</b> $MANUFACTURER $MODEL<br><b>Seriennummer:</b> ${SERIAL:-unbekannt}<br><b>Laufzeit:</b> $POWER_ON_HOURS Stunden</p>" >> "$DISK_SECTIONS"
 
     echo "<table border='1' cellspacing='0' cellpadding='4' style='border-collapse:collapse; width:100%; margin-bottom:15px;'>" >> "$DISK_SECTIONS"
     echo "<tr style='background:#eee;'><th>Attribut</th><th>Wert</th><th>Status</th></tr>" >> "$DISK_SECTIONS"
@@ -163,6 +330,8 @@ for DISK in $DISKS; do
             COLOR="red"; MSG="KRITISCH"
             raise_disk_status KRITISCH
             DISK_ISSUES="${DISK_ISSUES}<li>$NAME: <b>$VALUE</b> ($REASON)</li>"
+            CRITICAL_ATTRS="${CRITICAL_ATTRS:+$CRITICAL_ATTRS,}$NAME"
+            CRITICAL_REASONS="${CRITICAL_REASONS:+$CRITICAL_REASONS; }$NAME: $VALUE ($REASON)"
         elif [ "$NUM" -ge 1 ]; then
             COLOR="orange"; MSG="WARNUNG"
             raise_disk_status WARNUNG
@@ -190,6 +359,93 @@ for DISK in $DISKS; do
     echo "<tr><td>UDMA_CRC_Errors</td><td>$CRC</td><td style='color:$CRC_COLOR; font-weight:bold;'>$CRC_MSG</td></tr>" >> "$DISK_SECTIONS"
     echo "</table>" >> "$DISK_SECTIONS"
 
+    # ==========================================================================
+    # Kritisch-Marker
+    #
+    # Ein einmal kritischer Befund bleibt kritisch, bis er nachweislich erledigt
+    # ist. Sonst würde eine Platte allein dadurch wieder unauffällig, dass der
+    # auslösende Zuwachs aus dem Historien-Fenster rutscht.
+    #
+    # Aufgehoben wird der Marker auf drei Wegen:
+    #   1. Plattentausch  – neue Seriennummer, damit ein anderer Zustandsschlüssel
+    #      und automatisch kein Marker. Die zusätzliche Prüfung unten greift für
+    #      den Fall, dass mangels lesbarer Seriennummer über den Kernel-Namen
+    #      geschlüsselt wurde.
+    #   2. Wert wieder in Ordnung – alle auslösenden Attribute stehen über
+    #      CLEAR_RUNS Läufe wieder auf 0.
+    #   3. Reparatur/Quittung – manuell über --clear.
+    # ==========================================================================
+    PREV_SERIAL=$(state_get "$STATE_FILE" SERIAL)
+    LATCHED=$(state_get "$STATE_FILE" LATCHED)
+    LATCHED_SINCE=$(state_get "$STATE_FILE" LATCHED_SINCE)
+    LATCH_ATTRS=$(state_get "$STATE_FILE" LATCH_ATTRS)
+    LATCH_REASON=$(state_get "$STATE_FILE" LATCH_REASON)
+    CLEAN_RUNS=$(to_number "$(state_get "$STATE_FILE" CLEAN_RUNS)")
+    LATCH_NOTE=""
+
+    # 1. Plattentausch bei Schlüsselung über den Kernel-Namen
+    if [ "$LATCHED" = "1" ] && [ -n "$PREV_SERIAL" ] && [ -n "$SERIAL" ] && [ "$PREV_SERIAL" != "$SERIAL" ]; then
+        rm -f "$STATE_FILE"
+        LATCHED=""; LATCH_ATTRS=""; LATCH_REASON=""; CLEAN_RUNS=0
+        LATCH_NOTE="Marker aufgehoben: Platte wurde getauscht (Seriennummer $PREV_SERIAL → $SERIAL)."
+    fi
+
+    if [ "$DISK_STATUS" = "KRITISCH" ]; then
+        # Befund aktuell kritisch: Marker setzen bzw. auffrischen
+        if [ "$LATCHED" != "1" ]; then
+            LATCHED_SINCE=$(date +%F)
+        fi
+        LATCHED=1
+        LATCH_ATTRS="$CRITICAL_ATTRS"
+        LATCH_REASON="$CRITICAL_REASONS"
+        CLEAN_RUNS=0
+    elif [ "$LATCHED" = "1" ]; then
+        # Kein akuter Befund, aber gemerkter: prüfen ob alle auslösenden
+        # Attribute wieder auf 0 stehen.
+        ALL_CLEAN=1
+        IFS=',' read -r -a LATCH_ATTR_LIST <<< "$LATCH_ATTRS"
+        for ATTR in "${LATCH_ATTR_LIST[@]}"; do
+            [ -z "$ATTR" ] && continue
+            if [ "$(attr_value "$ATTR")" -ne 0 ]; then ALL_CLEAN=0; break; fi
+        done
+
+        if [ "$ALL_CLEAN" -eq 1 ]; then
+            CLEAN_RUNS=$(( CLEAN_RUNS + 1 ))
+            if [ "$CLEAN_RUNS" -ge "$CLEAR_RUNS" ]; then
+                rm -f "$STATE_FILE"
+                LATCHED=""
+                LATCH_NOTE="Marker aufgehoben: auslösende Attribute stehen seit $CLEAR_RUNS Läufen wieder auf 0."
+            else
+                LATCH_NOTE="Gemerkter Befund seit $LATCHED_SINCE – aktuell unauffällig ($CLEAN_RUNS von $CLEAR_RUNS sauberen Läufen), Marker wird danach automatisch aufgehoben."
+            fi
+        else
+            CLEAN_RUNS=0
+            LATCH_NOTE="Gemerkter Befund seit $LATCHED_SINCE: $LATCH_REASON. Die auslösenden Werte gehen nicht mehr auf 0 zurück – nach Tausch oder Reparatur mit <code>$0 --clear $DEVICE</code> quittieren."
+        fi
+
+        # Solange der Marker steht, bleibt die Platte kritisch.
+        if [ "$LATCHED" = "1" ]; then
+            DISK_STATUS="KRITISCH"
+            DISK_ISSUES="${DISK_ISSUES}<li>Kritisch-Marker gesetzt (seit $LATCHED_SINCE)</li>"
+        fi
+    fi
+
+    if [ -n "$LATCH_NOTE" ]; then
+        DISK_ISSUES="${DISK_ISSUES}<li>$LATCH_NOTE</li>"
+    fi
+
+    # Zustand fortschreiben
+    if [ "$LATCHED" = "1" ]; then
+        cat > "$STATE_FILE" <<EOF
+SERIAL=$SERIAL
+LATCHED=1
+LATCHED_SINCE=$LATCHED_SINCE
+LATCH_ATTRS=$LATCH_ATTRS
+LATCH_REASON=$LATCH_REASON
+CLEAN_RUNS=$CLEAN_RUNS
+EOF
+    fi
+
     # --- Historie-Tabelle ---
     echo "<p><b>Historie (Letzte $HISTORY_RUNS Läufe):</b></p>" >> "$DISK_SECTIONS"
     echo "<pre style='background:#f8f9fa; padding:10px; border-left:4px solid #3498db; font-family: monospace;'>" >> "$DISK_SECTIONS"
@@ -212,7 +468,7 @@ for DISK in $DISKS; do
             [ "$OVERALL_STATUS" = "OK" ] && OVERALL_STATUS="HINWEIS"
             ;;
     esac
-    if [ "$DISK_STATUS" != "OK" ]; then
+    if [ "$DISK_STATUS" != "OK" ] || [ -n "$LATCH_NOTE" ]; then
         PROBLEM_DETAILS="${PROBLEM_DETAILS}<div style='margin:5px 0;'><b>$DEVICE</b><ul style='margin:5px 0;'>${DISK_ISSUES}</ul></div>"
     fi
 done
