@@ -187,9 +187,22 @@ MAILTO=""
 30 3 * * * /usr/local/bin/rsnapshot-error-mail.sh
 ```
 
+Als Merker dient die Position im Log: die Zustandsdatei hält fest, bis zu
+welcher Zeile geprüft wurde, dazu eine Prüfsumme genau dieser Zeile. Steht dort
+beim nächsten Lauf etwas anderes, wurde das Log rotiert und es wird von vorn
+gelesen. Damit wird jede Logzeile genau einmal geprüft — es gibt keinen
+Zeitfenster-Rand, an dem ein Fehler zwischen zwei Läufe fallen könnte.
+
+Der erste Lauf nach der Umstellung von der früheren zeitstempelbasierten
+Zustandsdatei meldet die Fehler des aktuellen Logs einmalig erneut.
+
 Die Zustandsdatei liegt unter `/var/tmp`. Räumt das System `/var/tmp` auf, geht
 der Merker verloren und der nächste Lauf meldet alle Fehler aus dem Log erneut.
 Wer das vermeiden will, legt `STATEFILE` nach `/var/lib`.
+
+Nicht abgedeckt: Fehler, die nach dem letzten Prüflauf geschrieben und vor dem
+nächsten wegrotiert werden, sind im aktuellen Log nicht mehr enthalten. Der
+Prüfjob sollte deshalb zeitlich näher am Backup liegen als an der Logrotation.
 
 # smart-check.sh
 
