@@ -106,11 +106,16 @@ MAX_RETRIES=3                        # send attempts
 RETRY_INTERVAL=60                    # seconds between attempts
 
 WHITELIST=("/" "/boot" "/var")       # always monitored, if present
-BLACKLIST=("/snap" "/run" "/tmp")    # never monitored
+BLACKLIST=("/snap" "/run" "/tmp" "/etc/pve" "/sys/firmware/efi/efivars")    # never monitored
 ```
 
 The blacklist beats the whitelist: a mount point listed in both is not
 monitored.
+
+`/etc/pve` (the Proxmox VE cluster filesystem, a FUSE mount) and
+`/sys/firmware/efi/efivars` (UEFI NVRAM, an efivarfs mount) are excluded by
+default: neither reports a meaningful capacity, so their usage percentage is
+not an actionable signal.
 
 ## Make script executable
 ```
