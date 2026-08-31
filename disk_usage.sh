@@ -26,7 +26,7 @@ HOSTNAME=$(hostname -f)
 
 # Optional: Whitelist & Blacklist
 WHITELIST=("/" "/boot" "/var")       # wird immer überwacht, wenn vorhanden
-BLACKLIST=("/snap" "/run" "/tmp")    # wird nie überwacht
+BLACKLIST=("/snap" "/run" "/tmp" "/etc/pve" "/sys/firmware/efi/efivars")    # wird nie überwacht
 
 # Alle relevanten Mountpoints automatisch ermitteln
 ALL_MOUNTS=($(df -hP | awk 'NR>1 && $1 !~ /^tmpfs|^udev|^overlay|^loop/ {print $6}'))
