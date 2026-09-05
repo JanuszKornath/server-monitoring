@@ -89,6 +89,12 @@ Checks the usage of all mount points and sends a mail as soon as one exceeds
 the threshold. The mount points are determined via `df`; `tmpfs`, `udev`,
 `overlay` and `loop` are left out.
 
+The alert names the mount point, the device behind it (`/dev/sdb1`), and the
+physical disk the device sits on (`/dev/sdb`) — LVM and device-mapper layers
+are resolved via `lsblk`, so `/dev/mapper/pbs-root` is reported as `/dev/sda`.
+The disk line is omitted where it adds nothing: whole-disk devices, and mounts
+with no block device behind them (ZFS, NFS, FUSE).
+
 Every run is logged, even when no mail was necessary — the log file is
 therefore a continuous record of usage, not just an error log.
 
@@ -111,6 +117,10 @@ BLACKLIST=("/snap" "/run" "/tmp" "/etc/pve" "/sys/firmware/efi/efivars")    # ne
 
 The blacklist beats the whitelist: a mount point listed in both is not
 monitored.
+
+A whitelist entry that is not a mount point of its own (`/var` on a system
+without a separate `/var` partition) resolves to the filesystem containing it
+and is reported once, under that filesystem's actual mount point.
 
 `/etc/pve` (the Proxmox VE cluster filesystem, a FUSE mount) and
 `/sys/firmware/efi/efivars` (UEFI NVRAM, an efivarfs mount) are excluded by
