@@ -83,6 +83,28 @@ Every output line is prefixed by the script itself with a timestamp in the
 format `[YYYY-MM-DD HH:MM:SS]`, so the log file stays readable across runs.
 Nothing further is needed in the crontab.
 
+## Set logrotation
+
+```
+sudo nano /etc/logrotate.d/auto-update
+```
+```
+/var/log/auto-update.log {
+    su root adm
+    weekly
+    rotate 5
+    maxsize 1M
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 640 root adm
+}
+```
+
+The cron job appends to the log with `>>` and exits, so no process keeps the
+file open — plain rotation is enough, `copytruncate` is not needed.
+
 # disk_usage.sh
 
 Checks the usage of all mount points and sends a mail as soon as one exceeds
@@ -148,9 +170,10 @@ sudo nano /etc/logrotate.d/disk_usage
 ```
 ```
 /var/log/disk_usage.log {
+    su root adm
     weekly
     rotate 5
-    size 1M
+    maxsize 1M
     compress
     delaycompress
     missingok
@@ -158,6 +181,17 @@ sudo nano /etc/logrotate.d/disk_usage
     create 640 root adm
 }
 ```
+
+`maxsize` instead of `size`: `size` is mutually exclusive with the time
+directives — with `size 1M` the `weekly` above would be ignored and the log
+would rotate purely by size. `maxsize 1M` keeps the weekly rotation and adds an
+early rotation as soon as the log exceeds 1 MB in between.
+
+`su root adm` tells logrotate which user/group to rotate as. On Debian the same
+line is already set globally in `/etc/logrotate.conf`, so it is mostly
+belt-and-braces there — but it is mandatory as soon as `/var/log` is owned by a
+group other than `root` (for example `root:syslog`, as on Ubuntu), otherwise
+logrotate skips the file with *"parent directory has insecure permissions"*.
 
 # rsnapshot-error-mail.sh
 
