@@ -187,11 +187,17 @@ directives — with `size 1M` the `weekly` above would be ignored and the log
 would rotate purely by size. `maxsize 1M` keeps the weekly rotation and adds an
 early rotation as soon as the log exceeds 1 MB in between.
 
-`su root adm` tells logrotate which user/group to rotate as. On Debian the same
-line is already set globally in `/etc/logrotate.conf`, so it is mostly
-belt-and-braces there — but it is mandatory as soon as `/var/log` is owned by a
-group other than `root` (for example `root:syslog`, as on Ubuntu), otherwise
-logrotate skips the file with *"parent directory has insecure permissions"*.
+`su root adm` tells logrotate which user/group to rotate as. Debian and Ubuntu
+both already set a global `su` in `/etc/logrotate.conf` — Debian `su root adm`,
+Ubuntu `su root syslog`, because `/var/log` is owned by `root:syslog` there — so
+on a stock system the line is belt-and-braces. It overrides the global default
+for this one block, which is harmless: rotation runs as `root` either way, and
+the group of the new log file is pinned by `create 640 root adm` regardless.
+
+The line becomes mandatory where *no* `su` is set at all and `/var/log` is
+writable by a group other than `root` (a trimmed `logrotate.conf`, or a distro
+that ships none). Logrotate then refuses the file with *"parent directory has
+insecure permissions"* — any `su` directive switches that check off.
 
 # rsnapshot-error-mail.sh
 
