@@ -105,6 +105,56 @@ sudo nano /etc/logrotate.d/auto-update
 The cron job appends to the log with `>>` and exits, so no process keeps the
 file open — plain rotation is enough, `copytruncate` is not needed.
 
+## Restart services after updates (recommended)
+
+The script installs updates but does not restart anything. A running daemon
+keeps the old binaries and libraries in memory until it is restarted, so a
+security fix is only in effect once the affected services have been restarted.
+
+`needrestart` hooks into APT and does exactly that after every
+`apt-get upgrade`/`dist-upgrade` — whether it is triggered by this script,
+`unattended-upgrades` or by hand.
+
+- **Debian** does not install it by default.
+- **Ubuntu** server installs ship it and restart automatically from the APT
+  hook. Minimal images and LXC templates may lack it — check with
+  `dpkg -s needrestart`.
+
+### Install
+
+```
+sudo apt install needrestart -y
+echo "\$nrconf{restart} = 'a';" | sudo tee /etc/needrestart/conf.d/50-autorestart.conf
+sudo needrestart -r a
+```
+
+`'a'` restarts automatically; without it needrestart only asks or lists. On
+Ubuntu the file merely pins what the APT hook does anyway. The last line
+restarts everything that is already running outdated code right now.
+
+### Exceptions
+
+- **Proxmox VE / PBS:** Proxmox packages restart their own services during the
+  update. Automatic restarts of `pve-cluster` or `corosync` are risky,
+  especially in a cluster — use `'l'` (list only) there instead of `'a'`.
+- **Services that must not be interrupted**, e.g. Plex (a restart drops running
+  streams):
+  ```
+  echo '$nrconf{override_rc}{qr(^plexmediaserver)} = 0;' | sudo tee /etc/needrestart/conf.d/60-exclude.conf
+  ```
+  The service is then left alone and picks up the update with the next manual
+  restart or reboot.
+- **Docker hosts:** nothing to do. The default configuration already excludes
+  `docker` (`qr(^docker) => 0` in `/etc/needrestart/needrestart.conf`), so
+  needrestart never restarts the Docker daemon and with it all containers.
+
+### Not covered
+
+- **Kernel updates** still need a reboot; the mail of this script points that
+  out.
+- The script discards the output of `apt-get`, so which services were
+  restarted does not show up in the mail or in `/var/log/auto-update.log`.
+
 # disk_usage.sh
 
 Checks the usage of all mount points and sends a mail as soon as one exceeds
