@@ -137,13 +137,16 @@ restarts everything that is already running outdated code right now.
 - **Proxmox VE / PBS:** Proxmox packages restart their own services during the
   update. Automatic restarts of `pve-cluster` or `corosync` are risky,
   especially in a cluster — use `'l'` (list only) there instead of `'a'`.
-- **Services that must not be interrupted**, e.g. Plex (a restart drops running
-  streams):
+- **Services that must not be interrupted:** only exclude a service if even a
+  restart of a few seconds really hurts. The default is fine for most — the
+  script runs at a fixed, quiet time, and many services (e.g. Plex) bundle most
+  of their libraries and are restarted by their own package updates anyway.
+  An excluded service keeps running outdated code after a security update
+  until it is restarted by hand, so weigh that against the interruption.
+  Example, with `<service>` as the systemd unit name:
   ```
-  echo '$nrconf{override_rc}{qr(^plexmediaserver)} = 0;' | sudo tee /etc/needrestart/conf.d/60-exclude.conf
+  echo '$nrconf{override_rc}{qr(^<service>)} = 0;' | sudo tee /etc/needrestart/conf.d/60-exclude.conf
   ```
-  The service is then left alone and picks up the update with the next manual
-  restart or reboot.
 - **Docker hosts:** nothing to do. The default configuration already excludes
   `docker` (`qr(^docker) => 0` in `/etc/needrestart/needrestart.conf`), so
   needrestart never restarts the Docker daemon and with it all containers.
