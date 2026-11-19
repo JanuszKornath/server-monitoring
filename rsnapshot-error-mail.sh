@@ -56,9 +56,11 @@ if [ "$LASTLINE" -gt 0 ]; then
     fi
 fi
 
-# Backup-Level aus dem Log ziehen (letzte "started"-Zeile). Das Feld trägt im
-# Log einen Doppelpunkt ("beta:"), der für den Betreff weg muss.
-LEVEL=$(tac "$LOG_FILE" | grep -m1 "started" | awk '{print $4}' | tr -d ':' | tr '[:lower:]' '[:upper:]')
+# Backup-Level aus dem Log ziehen (letzte "started"-Zeile, z. B.
+# "[ts] /usr/bin/rsnapshot beta: started"). Das Level ist das Feld direkt vor
+# "started", unabhängig von weiteren Argumenten wie "-c /etc/rsnapshot.conf".
+# Es trägt im Log einen Doppelpunkt ("beta:"), der für den Betreff weg muss.
+LEVEL=$(tac "$LOG_FILE" | awk '$NF == "started" { print $(NF-1); exit }' | tr -d ':' | tr '[:lower:]' '[:upper:]')
 
 # Falls nichts gefunden, Standardwert setzen
 if [ -z "$LEVEL" ]; then

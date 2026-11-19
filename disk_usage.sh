@@ -29,14 +29,18 @@ WHITELIST=("/" "/boot" "/var")       # wird immer überwacht, wenn vorhanden
 BLACKLIST=("/snap" "/run" "/tmp" "/etc/pve" "/sys/firmware/efi/efivars")    # wird nie überwacht
 
 # Alle relevanten Mountpoints automatisch ermitteln
-ALL_MOUNTS=($(df -hP | awk 'NR>1 && $1 !~ /^tmpfs|^udev|^overlay|^loop/ {print $6}'))
+# loop-Geräte erscheinen in df als /dev/loopN (z. B. Snap-squashfs, immer 100 %)
+ALL_MOUNTS=($(df -hP | awk 'NR>1 && $1 !~ /^(tmpfs|udev|overlay|\/dev\/loop)/ {print $6}'))
 
 # Mountpoints zusammenführen: ALL_MOUNTS + WHITELIST - BLACKLIST
 DISKS=()
 for MNT in "${ALL_MOUNTS[@]}" "${WHITELIST[@]}"; do
+    # Whitelist-Pfade, die es auf diesem Host nicht gibt, überspringen
+    [ -e "$MNT" ] || continue
     skip=false
     for BL in "${BLACKLIST[@]}"; do
-        if [[ "$MNT" == "$BL" ]]; then
+        # Blacklist-Einträge gelten auch für alles darunter (/snap/core22/1234)
+        if [[ "$MNT" == "$BL" || "$MNT" == "$BL"/* ]]; then
             skip=true
             break
         fi
