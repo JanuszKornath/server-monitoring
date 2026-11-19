@@ -46,8 +46,8 @@ Installs APT, Snap and Docker updates and reports by mail to `root` what was
 installed. The mail is only sent when something actually happened or a reboot
 is pending — a run without updates stays silent.
 
-For Docker the script looks up to three levels below `DOCKER_DIR` for
-`docker-compose.yml`, pulls the images and restarts the stacks. Only what was
+For Docker the script looks for `docker-compose.yml` in `DOCKER_DIR` itself and
+up to two directory levels below it, pulls the images and restarts the stacks. Only what was
 really recreated is counted.
 
 ## Configure
@@ -162,7 +162,7 @@ restarts everything that is already running outdated code right now.
 
 Checks the usage of all mount points and sends a mail as soon as one exceeds
 the threshold. The mount points are determined via `df`; `tmpfs`, `udev`,
-`overlay` and `loop` are left out.
+`overlay` and loop devices (`/dev/loop*`, e.g. snap packages) are left out.
 
 The alert names the mount point, the device behind it (`/dev/sdb1`), and the
 physical disk the device sits on (`/dev/sdb`) — LVM and device-mapper layers
@@ -191,7 +191,9 @@ BLACKLIST=("/snap" "/run" "/tmp" "/etc/pve" "/sys/firmware/efi/efivars")    # ne
 ```
 
 The blacklist beats the whitelist: a mount point listed in both is not
-monitored.
+monitored. Blacklist entries also cover everything below them, so `/snap`
+excludes `/snap/core22/1234` as well. Whitelist paths that do not exist on the
+host are skipped silently.
 
 A whitelist entry that is not a mount point of its own (`/var` on a system
 without a separate `/var` partition) resolves to the filesystem containing it
@@ -259,7 +261,7 @@ Only what is new **since the last run** is reported, so a one-off error lands
 in the mailbox exactly once instead of again on every following run.
 
 The backup level (`ALPHA`, `BETA`, …) is taken from the last `started` line of
-the log and appears in the subject; if it cannot be determined it reads
+the log (the field right before `started`) and appears in the subject; if it cannot be determined it reads
 `UNKNOWN`. The mail also carries the last 20 log lines.
 
 If the log does not exist, the script exits silently.
